@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Certifications</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -23,7 +24,7 @@
             align-items: center;
         }
         .gallery img {
-            width: 250px;
+            max-width: 100%;
             height: auto;
             border-radius: 8px;
             box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
@@ -31,18 +32,6 @@
         }
         .gallery img:hover {
             transform: scale(1.05);
-        }
-        .pdf-icon {
-            font-size: 20px;
-            font-weight: bold;
-            background-color: #e74c3c;
-            color: white;
-            padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
-        }
-        .pdf-icon:hover {
-            background-color: #c0392b;
         }
     </style>
 </head>
@@ -57,12 +46,17 @@
             const repo = "Certifications";
             const branch = "main"; // Change if necessary
 
-            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
 
             try {
                 const response = await fetch(apiUrl);
-                const data = await response.json();
-                const files = data.tree;
+                const files = await response.json();
+
+                if (!Array.isArray(files)) {
+                    console.error("API response error:", files);
+                    document.getElementById("imageGallery").innerHTML = "<p>Failed to load certifications.</p>";
+                    return;
+                }
 
                 const imageGallery = document.getElementById("imageGallery");
                 imageGallery.innerHTML = "";
@@ -70,32 +64,69 @@
                 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
                 const pdfExtension = ".pdf";
 
-                files.forEach(file => {
-                    const fileUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${file.path}`;
-                    const githubUrl = `https://github.com/${owner}/${repo}/blob/${branch}/${file.path}`;
+                files.forEach(async (file) => {
+                    const fileUrl = file.download_url;
+                    const githubUrl = file.html_url;
 
                     const linkElement = document.createElement("a");
                     linkElement.href = githubUrl;
                     linkElement.target = "_blank";
 
-                    if (imageExtensions.some(ext => file.path.endsWith(ext))) {
-                        // Display images
+                    if (imageExtensions.some(ext => file.name.endsWith(ext))) {
+                        // Show Image with dynamic size
                         const imgElement = document.createElement("img");
                         imgElement.src = fileUrl;
                         imgElement.alt = "Certification";
+                        imgElement.onload = function () {
+                            adjustImageSize(imgElement);
+                        };
                         linkElement.appendChild(imgElement);
-                    } else if (file.path.endsWith(pdfExtension)) {
-                        // Display PDFs with an icon
-                        const pdfElement = document.createElement("div");
-                        pdfElement.classList.add("pdf-icon");
-                        pdfElement.innerText = "📄 View PDF";
-                        linkElement.appendChild(pdfElement);
+                    } else if (file.name.endsWith(pdfExtension)) {
+                        // Convert PDF first page to image
+                        const imgElement = document.createElement("img");
+                        imgElement.alt = "PDF Preview";
+                        imgElement.src = await convertPDFToImage(fileUrl);
+                        imgElement.onload = function () {
+                            adjustImageSize(imgElement);
+                        };
+                        linkElement.appendChild(imgElement);
                     }
 
                     imageGallery.appendChild(linkElement);
                 });
             } catch (error) {
                 console.error("Error fetching files:", error);
+                document.getElementById("imageGallery").innerHTML = "<p>Error loading files.</p>";
+            }
+        }
+
+        async function convertPDFToImage(pdfUrl) {
+            const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+            const page = await pdf.getPage(1);
+            const scale = 2; // Higher scale for better resolution
+            const viewport = page.getViewport({ scale });
+
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+
+            return canvas.toDataURL("image/png");
+        }
+
+        function adjustImageSize(img) {
+            const maxWidth = 400; // Max width in pixels
+            const maxHeight = 600; // Max height in pixels
+            
+            let width = img.naturalWidth;
+            let height = img.naturalHeight;
+
+            if (width > maxWidth || height > maxHeight) {
+                const scaleFactor = Math.min(maxWidth / width, maxHeight / height);
+                img.width = width * scaleFactor;
+                img.height = height * scaleFactor;
             }
         }
 
